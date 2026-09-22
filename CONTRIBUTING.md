@@ -29,7 +29,7 @@ marked. Keep the description under 100 characters, lowercase, and in the
 imperative mood.
 
 Scopes are optional; use the package or area touched, for example
-`fix(term): ...` or `build(deps): ...`.
+`fix(shell): ...` or `build(deps): ...`.
 
 Dependency updates are opened by Renovate, configured in `renovate.json`.
 
@@ -45,10 +45,12 @@ go test -race ./...
 go mod tidy && git diff --exit-code -- go.mod go.sum
 ```
 
-## Relationship to kubectl
+## Relationship to kubectl and git
 
-The Go sources are derived from `k8s.io/kubectl/pkg/cmd/util/editor`; see
-[NOTICE](NOTICE). When fixing a bug, check whether it also exists upstream, and
-keep divergence from upstream deliberate and noted in the commit message.
+The package began as a fork of `k8s.io/kubectl/pkg/cmd/util/editor`; see
+[NOTICE](NOTICE). It has since been rewritten, and its observable behaviour --
+which variables are consulted, when a value goes to a shell, what `:` means --
+follows git's `launch_editor`. Prefer matching git over inventing something new:
+these are behaviours users already have expectations about.
 
 [cc]: https://www.conventionalcommits.org/en/v1.0.0/

@@ -1,10 +1,15 @@
 module github.com/DanInProgress/go-editor
 
-go 1.24
-
-require github.com/moby/term v0.5.2
+go 1.24.0
 
 require (
-	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	golang.org/x/sys v0.1.0 // indirect
+	github.com/stretchr/testify v1.11.1
+	golang.org/x/term v0.35.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -1,121 +1,120 @@
-/*
-Copyright 2015 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package editor
 
 import (
 	"io"
 	"os"
-	"runtime"
-	"strings"
+	"time"
 )
 
 const (
-	// sorry, blame Git
-	// TODO: on Windows rely on 'start' to launch the editor associated
-	// with the given file type. If we can't because of the need of
-	// blocking, use a script with 'ftype' and 'assoc' to detect it.
-	defaultEditor = "vi"
-	defaultShell  = "/bin/bash"
-	windowsEditor = "notepad"
-	windowsShell  = "cmd"
+	// DefaultWaitDelay is how long an editor is given to exit after being
+	// asked to terminate, before it is killed outright.
+	DefaultWaitDelay = 5 * time.Second
+
+	// NoopEditor is the editor value meaning "do not edit". It is the
+	// shell's null command, so EDITOR=: is the conventional way to run an
+	// editing flow without opening anything.
+	NoopEditor = ":"
 )
 
-// Editor holds the command-line args to fire up the editor
+// Source is one place an editor command line can come from.
+type Source struct {
+	// Env is an environment variable to read. If it is empty, Value is used
+	// instead.
+	Env string
+
+	// Value is a literal command line. A fallback is just a source that
+	// does not depend on the environment.
+	Value string
+
+	// Visual marks a source naming a full-screen editor, which is skipped
+	// when $TERM is dumb. $VISUAL means precisely this, which is why it
+	// exists alongside $EDITOR.
+	Visual bool
+}
+
+// Editor holds the settings used to locate and run an editor. The zero value
+// has no sources and so cannot resolve one; call [New].
 type Editor struct {
-	Args  []string
-	Shell bool
+	// Sources are consulted in order, and the first non-empty value wins.
+	Sources []Source
+
+	// Shell is the argv prefix used for an editor value that needs a shell,
+	// ending in the flag that introduces the command string. Nil means
+	// {"/bin/sh", "-c"}, or {"cmd", "/C"} on Windows.
+	//
+	// It is deliberately not $SHELL: editor values are written in POSIX
+	// shell syntax by convention, and an interactive shell that parses them
+	// differently -- fish, say -- would break values that work everywhere
+	// else.
+	Shell []string
+
+	// WaitDelay bounds how long Launch waits for the editor to exit after
+	// the context is cancelled, before killing it.
+	WaitDelay time.Duration
+
+	// Quiet suppresses the notice printed while the editor is open.
+	Quiet bool
+
+	// Stdin, Stdout and Stderr are handed to the editor. Nil means the
+	// corresponding os file.
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
-// NewDefaultEditor creates a struct Editor that uses the OS environment to
-// locate the editor program, looking at EDITOR environment variable to find
-// the proper command line. If the provided editor has no spaces, or no quotes,
-// it is treated as a bare command to be loaded. Otherwise, the string will
-// be passed to the user's shell for execution.
-func NewDefaultEditor(envs []string) Editor {
-	args, shell := defaultEnvEditor(envs)
-	return Editor{
-		Args:  args,
-		Shell: shell,
+// New returns an Editor that consults the given environment variables first,
+// then $VISUAL, $EDITOR and the platform fallback.
+//
+// Variables named by the caller are honoured whatever $TERM says. A program
+// offering its own MYAPP_EDITOR cannot know whether the editor named there
+// needs a capable terminal, and guessing wrong would ignore an explicit
+// instruction.
+func New(envVars ...string) *Editor {
+	sources := make([]Source, 0, len(envVars)+3)
+	for _, name := range envVars {
+		sources = append(sources, Source{Env: name})
+	}
+	sources = append(sources,
+		Source{Env: "VISUAL", Visual: true},
+		Source{Env: "EDITOR"},
+		fallbackSource(),
+	)
+
+	return &Editor{
+		Sources:   sources,
+		WaitDelay: DefaultWaitDelay,
 	}
 }
 
-func defaultEnvShell() []string {
-	shell := os.Getenv("SHELL")
-	if len(shell) == 0 {
-		shell = platformize(defaultShell, windowsShell)
+// Default is the Editor used by the package-level [Launch] and [Open].
+var Default = New()
+
+func (e *Editor) stdin() io.Reader {
+	if e.Stdin != nil {
+		return e.Stdin
 	}
-	flag := "-c"
-	if shell == windowsShell {
-		flag = "/C"
-	}
-	return []string{shell, flag}
+	return os.Stdin
 }
 
-func defaultEnvEditor(envs []string) ([]string, bool) {
-	var editor string
-	for _, env := range envs {
-		if len(env) > 0 {
-			editor = os.Getenv(env)
-		}
-		if len(editor) > 0 {
-			break
-		}
+func (e *Editor) stdout() io.Writer {
+	if e.Stdout != nil {
+		return e.Stdout
 	}
-	if len(editor) == 0 {
-		editor = platformize(defaultEditor, windowsEditor)
-	}
-	if !strings.Contains(editor, " ") {
-		return []string{editor}, false
-	}
-	if !strings.ContainsAny(editor, "\"'\\") {
-		return strings.Split(editor, " "), false
-	}
-	// rather than parse the shell arguments ourselves, punt to the shell
-	shell := defaultEnvShell()
-	return append(shell, editor), true
+	return os.Stdout
 }
 
-// LaunchTempFile reads the provided stream into a temporary file in the given directory
-// and file prefix, and then invokes Launch with the path of that file. It will return
-// the contents of the file after launch, any errors that occur, and the path of the
-// temporary file so the caller can clean it up as needed.
-func (e Editor) LaunchTempFile(prefix, suffix string, r io.Reader) ([]byte, string, error) {
-	f, err := os.CreateTemp("", prefix+"*"+suffix)
-	if err != nil {
-		return nil, "", err
+func (e *Editor) stderr() io.Writer {
+	if e.Stderr != nil {
+		return e.Stderr
 	}
-	defer f.Close()
-	path := f.Name()
-	if _, err := io.Copy(f, r); err != nil {
-		os.Remove(path)
-		return nil, path, err
-	}
-	// This file descriptor needs to close so the next process (Launch) can claim it.
-	f.Close()
-	if err := e.Launch(path); err != nil {
-		return nil, path, err
-	}
-	bytes, err := os.ReadFile(path)
-	return bytes, path, err
+	return os.Stderr
 }
 
-func platformize(linux, windows string) string {
-	if runtime.GOOS == "windows" {
-		return windows
-	}
-	return linux
+// file returns v as an *os.File, for the terminal queries that need a file
+// descriptor. Anything else is not a terminal, which is the answer those
+// queries want anyway.
+func file(v any) (*os.File, bool) {
+	f, ok := v.(*os.File)
+	return f, ok
 }
