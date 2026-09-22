@@ -1,0 +1,30 @@
+name: conventional-commits
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conventional-commits-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Lint pull request title and commits
+        env:
+          # Both are attacker-controlled text, so they are passed through the
+          # environment rather than interpolated into the script.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/lint-conventional-commits.sh

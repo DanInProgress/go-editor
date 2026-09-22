@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":maintainLockFilesWeekly"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["before 9am on monday"],
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Go module updates land as build: commits, grouped so CI runs once.",
+      "matchManagers": ["gomod"],
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps",
+      "groupName": "go dependencies"
+    },
+    {
+      "description": "Keep indirect dependencies current too; this module has few of them.",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "enabled": true
+    },
+    {
+      "description": "Workflow action updates land as ci: commits.",
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "deps",
+      "groupName": "github actions"
+    },
+    {
+      "description": "Never bump the go directive past the oldest release the module supports.",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "enabled": false
+    }
+  ]
+}

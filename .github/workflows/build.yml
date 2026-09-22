@@ -1,0 +1,74 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.24', 'stable']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  cross-compile:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          check-latest: true
+      # The launchers are build-tagged per platform, so build every target the
+      # package claims to support, including ones with no CI runner.
+      - name: go build
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64; do
+            echo "::group::$target"
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+            echo "::endgroup::"
+          done
+
+  tidy:
+    name: gofmt and go mod tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          check-latest: true
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum

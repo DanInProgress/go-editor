@@ -1,0 +1,16 @@
+go-editor
+Copyright 2025 The go-editor Authors
+
+This product includes software developed at
+The Kubernetes Authors (https://kubernetes.io/).
+
+Portions of this software are derived from kubectl
+(https://github.com/kubernetes/kubectl), licensed under the
+Apache License, Version 2.0:
+
+  - editor.go, editor_test.go, launcher_others.go, launcher_windows.go
+    from pkg/cmd/util/editor
+  - internal/term/term.go from pkg/util/term (trimmed)
+  - internal/interrupt/interrupt.go from pkg/util/interrupt
+
+Copyright 2015-2022 The Kubernetes Authors.
